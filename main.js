@@ -1494,14 +1494,38 @@ app.get('/api/download-file/:filename', (req, res) => {
         const fileStream = fs.createReadStream(filePath);
         fileStream.pipe(res);
 
+        // Track if the file was fully sent to the user
+        let downloadCompleted = false;
+        
         fileStream.on('end', () => {
-            // Optional: Delete file after download
+            downloadCompleted = true;
+            console.log(`File download completed: ${filename}`);
+        });
+
+        // Delete file after user has had time to download it
+        // We give more time and only delete after the stream has ended
+        res.on('finish', () => {
             setTimeout(() => {
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
-                    console.log(`File deleted after download: ${filename}`);
+                if (downloadCompleted && fs.existsSync(filePath)) {
+                    try {
+                        fs.unlinkSync(filePath);
+                        console.log(`File deleted after successful download: ${filename}`);
+                    } catch (deleteError) {
+                        console.error(`Error deleting file ${filename}:`, deleteError);
+                    }
                 }
-            }, 5000); // Delete after 5 seconds
+            }, 30000); // Delete after 30 seconds to give user time to save/process the file
+        });
+
+        // Handle errors and clean up
+        fileStream.on('error', (error) => {
+            console.error(`Error streaming file ${filename}:`, error);
+            if (!res.headersSent) {
+                res.status(500).json({
+                    error: 'File streaming failed',
+                    message: 'Could not stream the file'
+                });
+            }
         });
 
     } catch (error) {
